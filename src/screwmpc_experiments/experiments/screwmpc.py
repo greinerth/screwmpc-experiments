@@ -54,6 +54,59 @@ def pose_to_dq(pose: tuple[np.ndarray, np.ndarray, float]) -> dqrobotics.DQ:
     return dqrobotics.DQ(spatialmath.UnitDualQuaternion(se3).vec)  # pylint: disable=no-member
 
 
+def dq_to_pose(unit_dq: dqrobotics.DQ) -> tuple[np.ndarray, np.ndarray]:
+    """Generate a classic pose from a unit dual quaternion.
+
+    Args:
+        unit_dq (dqrobotics.DQ): pose represented as dual quaternion.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: translation (3d vector), orientation (quaternion)
+    """
+    translation = dqrobotics.vec3(dqrobotics.translation(unit_dq))
+    orientation = dqrobotics.vec4(dqrobotics.rotation(unit_dq))
+    return translation, orientation
+
+
+def dq_sclerp(
+    current_pose: dqrobotics.DQ, goal_pose: dqrobotics.DQ, alpha: float
+) -> dqrobotics.DQ:
+    """Perform scLERP (dual quaternion interpolation from one pose to another).
+
+    Args:
+        current_pose (DQ): Current pose.
+        goal_pose (DQ): Goal pose.
+        alpha (float): interpolation parameter.
+
+    Returns:
+        DQ: Interpolated DQ.
+    """
+    if not (0 <= alpha <= 1):
+        msg = "alpha must lie between 0 and 1."
+        raise ValueError(msg)
+
+    delta_dq = current_pose.inv() * goal_pose
+    return current_pose * dqrobotics.pow(delta_dq, alpha)
+
+
+def generate_intermediate_waypoints(
+    start_pose: dqrobotics.DQ, goal_pose: dqrobotics.DQ, n_points: int
+) -> list[dqrobotics.DQ]:
+    """Generate intermediate waypoints using unit dual quaternions.
+
+    Args:
+        start_pose (dqrobotics.DQ): Start pose represented as unit dual quaternion.
+        goal_pose (dqrobotics.DQ): Goal pose represented as unit dual quaternion.
+        n_points (int): Number of points to generate in total (including start- and goal pose).
+
+    Returns:
+        list[dqrobotics.DQ]: Generated intermediate waypoints.
+    """
+    return [
+        dq_sclerp(start_pose, goal_pose, step) for step in np.linspace(0, 1, n_points)
+    ]
+
+
 def generate_random_poses(
     n: int,
     min_pose_bounds: np.ndarray,
