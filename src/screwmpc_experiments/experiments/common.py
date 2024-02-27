@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import pathlib
 
 import numpy as np
@@ -9,7 +10,7 @@ from dm_env import specs
 from dm_robotics.agentflow.preprocessors import observation_transforms, rewards
 from dm_robotics.moma import subtask_env
 from dm_robotics.moma.sensors import site_sensor
-from dm_robotics.panda import arm_constants, environment
+from dm_robotics.panda import arm_constants, environment, run_loop
 from dm_robotics.panda import parameters as params
 
 from . import screwmpc
@@ -17,7 +18,7 @@ from . import screwmpc
 
 def create_environment(
     xml_path: pathlib.Path, args: argparse.Namespace
-) -> environment.PandaEnvironment:
+) -> tuple[environment.PandaEnvironment, params.RobotParams]:
     """Creates the basic environment for the experiments."""
     robot_params = params.RobotParams(
         robot_ip=args.robot_ip,
@@ -51,11 +52,17 @@ def create_environment(
             ),
             rewards.ComputeReward(screwmpc.goal_reward),
             observation_transforms.RetainObservations(
-                ["time", "manipulability", "panda_joint_pos"]
+                [
+                    "time",
+                    "manipulability",
+                    "panda_joint_pos",
+                    "panda_tcp_pos",
+                    "panda_tcp_quat",
+                ]
             ),
         ]
     )
-    return panda_env
+    return panda_env, robot_params
 
 
 def create_argparser() -> argparse.ArgumentParser:
@@ -96,6 +103,12 @@ def create_argparser() -> argparse.ArgumentParser:
         action="store_true",
         help="set the robot control thread priority to realtime",
     )
+    parser.add_argument(
+        "--grasp-time",
+        type=float,
+        help="Time to wait for a grasp to complete",
+        default=2.0,
+    )
     return parser
 
 
@@ -109,4 +122,13 @@ def create_agent(
         args.sclerp,
         args.manipulability,
         args.output,
+        grasp_time=args.grasp_time,
     )
+
+
+def run(env: subtask_env.SubTaskEnvironment, agent: screwmpc.ScrewMPCAgent) -> None:
+    """Run an experiment without the GUI."""
+    try:
+        run_loop.run(env, agent, [], max_steps=100000, real_time=True)
+    except KeyboardInterrupt:
+        logging.info("Exiting")

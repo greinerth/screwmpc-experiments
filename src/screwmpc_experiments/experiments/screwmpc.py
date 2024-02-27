@@ -109,6 +109,7 @@ def generate_intermediate_waypoints(
 
 def generate_random_poses(
     n: int,
+    q_init: np.ndarray,
     min_pose_bounds: np.ndarray,
     max_pose_bounds: np.ndarray,
     random_state: np.random.RandomState,  # pylint: disable=no-member
@@ -117,7 +118,7 @@ def generate_random_poses(
     Generate random poses within the given bounds.
 
     Compute random poses within the given bounds. The poses
-    are checked using inverse kinematics.
+    are checked using case consistent inverse kinematics.
     """
     gripper_pose_dist = pose_distribution.UniformPoseDistribution(
         min_pose_bounds=min_pose_bounds,
@@ -128,9 +129,10 @@ def generate_random_poses(
         pose = gripper_pose_dist.sample_pose(random_state)
         se3 = pose_to_se3(pose)
         se3 *= T_F_EE
-        q = panda_py.ik(se3)
+        q = panda_py.ik(se3, q_init)
         if not np.any(np.isnan(q)):
             poses.append((pose[0], pose[1], 1))
+            q_init = q.copy()
     return poses
 
 
@@ -144,6 +146,7 @@ class ScrewMPCAgent:
         sclerp: float,
         use_mp: bool = False,
         output_file: str = "obs.csv",
+        grasp_time: float = 2.0,
     ) -> None:
         self._spec = spec
         self._goal_tolerance = goal_tolerance
@@ -156,6 +159,7 @@ class ScrewMPCAgent:
         self._output_file = output_file
         self._finished = False
         self._dead_time = 0.0
+        self._grasp_time = grasp_time
         self.init_screwmpc()
         self.init_xmlrpc()
 
@@ -215,7 +219,7 @@ class ScrewMPCAgent:
                     and x_goal[2] != self._x_goal[2]
                 ):
                     logger.info("Grasping")
-                    self._dead_time = timestep.observation["time"][0] + 1
+                    self._dead_time = timestep.observation["time"][0] + self._grasp_time
                 else:
                     logger.info("Tracking new goal: %s", self._goal)
                 self._x_goal = x_goal
